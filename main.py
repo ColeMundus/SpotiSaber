@@ -5,6 +5,23 @@ from authlib.integrations.requests_client import OAuth2Session
 import flask_server
 import webbrowser
 import json
+from bs4 import BeautifulSoup
+import re
+from difflib import ndiff
+
+def compare(str1, str2):
+    counter = {"+": 0, "-": 0}
+    distance = 0
+    for edit_code, *_ in ndiff(str1, str2):
+        if edit_code == " ":
+            distance += max(counter.values())
+            counter = {"+": 0, "-": 0}
+        else:
+            counter[edit_code] += 1
+    distance += max(counter.values())
+    return distance
+
+words = lambda track_name: re.sub('[\(\)\[\]\-]', '', track_name.lower())
 
 def get_token():
     redirect_uri = 'http://localhost:5000/'
@@ -26,7 +43,7 @@ def get_playlists(auth, url="", playlists=[]):
     headers = {'Authorization': f"Bearer {auth['access_token']}"}
     r = requests.get(url, headers=headers).json()
     playlists += r['items']
-    if len(r['items']) < 50:
+    if len(r['items']) < 50 or not r['next']:
         return playlists
     return get_playlists(auth, r['next'], playlists)
 
@@ -35,8 +52,25 @@ def get_user(auth):
     r = requests.get('https://api.spotify.com/v1/me', headers=headers)
     return r.json()
 
-def get_tacks(playlist):
-    url = ""
+def get_tracks(auth, url="", tracks=[]):
+    headers = {'Authorization': f"Bearer {auth['access_token']}"}
+    r = requests.get(url, headers=headers).json()
+    tracks += r['items']
+    if len(r['items']) < 50 or not r['next']:
+        return tracks
+    return get_tracks(auth, r['next'], tracks)
+
+def search(track):
+    artist_names = [artist['name'] for artist in track['track']['artists']]
+    query = f"{'+'.join(track['track']['name'].split(' (')[0].split())}+{'+'.join(artist_names[0].split())}".lower()
+    r = requests.get(f"https://bsaber.com/?s={query}&orderby=relevance&order=DESC")
+    s = BeautifulSoup(r.content, 'html.parser')
+    results = [result.find('a').text.strip().split(' - ')[0] for result in s.find_all('h4')[1:-1]]
+    if results:
+        results.sort(key=lambda x: compare(words(track['track']['name']), x))
+        print(f"   [>] Matched Track: {results[0]}")
+    else:
+        print("   [x] No match found")
 
 auth = get_token()
 playlists = get_playlists(auth)
@@ -45,4 +79,8 @@ for n, playlist in enumerate(playlists):
     print(f"{n+1}. {playlist['name']} – {playlist['tracks']['total']}")
 playlist_number = int(input('Playlist number: '))
 pl = playlists[playlist_number-1]
-print(pl['tracks'])
+tracks = get_tracks(auth, url=pl['tracks']['href'])
+for track in tracks:
+    artist_names = [artist['name'] for artist in track['track']['artists']]
+    print(f"[~] Searching for track: {track['track']['name']} - {', '.join(artist_names)}")
+    search(track)
