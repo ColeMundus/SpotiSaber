@@ -13,7 +13,7 @@ def shutdown_server():
         raise RuntimeError('Not running with the Werkzeug Server')
     func()
 
-@app.route('/')
+@app.route('/capture_token')
 def arg_parse():
     print(request.url)
     global auth
