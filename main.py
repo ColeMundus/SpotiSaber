@@ -8,6 +8,8 @@ import json
 from bs4 import BeautifulSoup
 import re
 from difflib import ndiff
+from tqdm import tqdm
+import os
 
 def compare(str1, str2):
     counter = {"+": 0, "-": 0}
@@ -63,14 +65,34 @@ def get_tracks(auth, url="", tracks=[]):
 def search(track):
     artist_names = [artist['name'] for artist in track['track']['artists']]
     query = f"{'+'.join(track['track']['name'].split(' (')[0].split())}+{'+'.join(artist_names[0].split())}".lower()
+    # r = requests.get(f"https://beatsaver.com/search/?q={query}")
     r = requests.get(f"https://bsaber.com/?s={query}&orderby=relevance&order=DESC")
     s = BeautifulSoup(r.content, 'html.parser')
-    results = [result.find('a').text.strip().split(' - ')[0] for result in s.find_all('h4')[1:-1]]
+    # results = [r.find('h1').find('a') for r in s.find_all("div", class_="beatmap-result")]
+    try:
+        results = [(result.find('h4').find('a').text.strip(), result.find('a', class_="-download-zip")["href"]) for result in s.find_all("article")]
+    except:
+        results = []
     if results:
-        results.sort(key=lambda x: compare(words(track['track']['name']), x))
-        print(f"   [>] Matched Track: {results[0]}")
+        results.sort(key=lambda x: compare(words(track['track']['name']), x[0]))
+        print(f"   [>] Matched Track: {results[0][0]}")
+        return(results[0])
     else:
         print("   [x] No match found")
+        return None
+
+"""def download_track(track_name, url, directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+    file_name = re.sub('[^\w_.)( -]', '', track_name).replace(' ', '.') + '.zip'
+    buffer_size = 1024
+    r = requests.get(url, stream=True)
+    file_size = int(r.headers.get("Content-Length", 0))
+    progress = tqdm(r.iter_content(buffer_size), f"      [v] Downloading {file_name}", total=file_size, unit="B", unit_scale=True, unit_divisor=1024)
+    with open(file_name, "wb") as f:
+        for data in progress:
+            f.write(data)
+            progress.update(len(data))"""
 
 auth = get_token()
 playlists = get_playlists(auth)
@@ -80,7 +102,11 @@ for n, playlist in enumerate(playlists):
 playlist_number = int(input('Playlist number: '))
 pl = playlists[playlist_number-1]
 tracks = get_tracks(auth, url=pl['tracks']['href'])
+download_list = open('download_list.txt', 'w+')
 for track in tracks:
     artist_names = [artist['name'] for artist in track['track']['artists']]
     print(f"[~] Searching for track: {track['track']['name']} - {', '.join(artist_names)}")
-    search(track)
+    result = search(track)
+    if result:
+        download_list.write(result[1] + '\n')
+        #download_track(*result, 'downloaded_tracks/')
